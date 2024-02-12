@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 
 #define BACKLOG 100
 #define MAXLINE 4096
@@ -15,6 +16,7 @@ void ErrorHandling(const char* message);
 
 int main(int argc, char **argv) {
     int listenfd, connfd;
+    pid_t childpid;
     struct sockaddr_in servaddr;
     char buff[MAXLINE];
 
@@ -27,7 +29,7 @@ int main(int argc, char **argv) {
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    servaddr.sin_port = htons(PORT); // Use a port number above 1024
+    servaddr.sin_port = htons(PORT);
 
     // Bind socket
     if (bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
@@ -51,40 +53,48 @@ int main(int argc, char **argv) {
             ErrorHandling("accept error");
         }
 
-        ssize_t n = read(connfd, buff, MAXLINE);
-        if (n < 0) {
-            ErrorHandling("read error");
-        }
+        //Handle request in child process
+        if ((childpid = fork()) == 0) { // Child process
+            close(listenfd); // Child closes listening socket
+            ssize_t n = read(connfd, buff, MAXLINE);
+            if (n < 0) {
+                ErrorHandling("read error");
+            }
 
-        // Extract file path from request
-        char file_path[MAX_PATH_LENGTH];
-        if (sscanf(buff, "GET %s ", file_path) < 0) {
-            ErrorHandling("GET error");
-        }
+            // Extract file path from request
+            char file_path[MAX_PATH_LENGTH];
+            if (sscanf(buff, "GET %s ", file_path) < 0) {
+                ErrorHandling("GET error");
+            }
 
-        // Construct full path to requested resource
-        char resource[MAX_PATH_LENGTH + 5]; // ".html\0"
-        snprintf(resource, sizeof(resource), "./res%s.html", file_path);
+            // Construct full path to requested resource
+            char resource[MAX_PATH_LENGTH + 5]; // ".html\0"
+            snprintf(resource, sizeof(resource), "./res%s.html", file_path);
 
-        // Open requested file
-        if((file = fopen(resource, "r")) == NULL){
-            dprintf(connfd, "HTTP/1.1 404 Not Found\nContent-Type: text/html; charset=UTF-8\n\n");
-            dprintf(connfd, "<html><body><h1>404 Not Found</h1></body></html>");
+            // Open requested file
+            if ((file = fopen(resource, "r")) == NULL) {
+                dprintf(connfd, "HTTP/1.1 404 Not Found\nContent-Type: text/html; charset=UTF-8\n\n");
+                dprintf(connfd, "<html><body><h1>404 Not Found</h1></body></html>");
+                close(connfd);
+                exit(EXIT_FAILURE);
+            }
+
+            // Send HTTP response header
+            dprintf(connfd, "HTTP/1.1 200 OK\nContent-Type: text/html; charset=UTF-8\n\n");
+
+            // Send file content
+            while (fgets(buff, MAXLINE, file) != NULL) {
+                write(connfd, buff, strlen(buff));
+            }
+
+            // Close file and connection
+            fclose(file);
             close(connfd);
-            continue;
+            exit(EXIT_SUCCESS);
         }
 
-        // Send HTTP response header
-        dprintf(connfd, "HTTP/1.1 200 OK\nContent-Type: text/html; charset=UTF-8\n\n");
-
-        // Send file content
-        while (fgets(buff, MAXLINE, file) != NULL) {
-            write(connfd, buff, strlen(buff));
-        }
-
-        // Close file and connection
-        fclose(file);
-        close(connfd);
+        // Parent process
+        close(connfd); // Parent closes connected socket
     }
 
     return 0;
