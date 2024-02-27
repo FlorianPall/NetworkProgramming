@@ -56,7 +56,7 @@ main(int argc, char **argv)
 }
 
 
-struct sockaddr_in GetIP(char* adress, char* port){
+/*struct sockaddr_in GetIP(char* adress, char* port){
     struct addrinfo hints, *result;
 
     memset(&hints, 0, sizeof(hints));
@@ -72,6 +72,48 @@ struct sockaddr_in GetIP(char* adress, char* port){
     inet_ntop(AF_INET, &(addr->sin_addr), ipstr, INET_ADDRSTRLEN);
 
     return *addr;
+}
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+struct sockaddr_in GetIP(char* adress, char* port){
+    struct addrinfo input, *result;
+
+    bzero(&input, sizeof(input));
+    input.ai_family = AF_INET;
+
+    getaddrinfo(adress, port, &input, &result);
+
+    struct sockaddr_in *addr = (struct sockaddr_in*)&result -> ai_addr;
+
+    char ip[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &(addr -> sin_addr), ip, sizeof(ip));
+
+    return *addr;
+
 }
 
 
